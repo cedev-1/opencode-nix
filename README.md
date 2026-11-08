@@ -4,10 +4,10 @@ OpenCode - AI coding agent built for the terminal, packaged for NixOS and Nix us
 
 ## About
 
-This flake provides OpenCode v1.18.21 from npm platform-specific packages.
+This flake provides OpenCode v2.2.6 from the binaries published in the GitHub releases.
 
-- **Version**: 1.18.21
-- **Source**: npm registry (opencode-linux-x64, etc.)
+- **Version**: 2.2.6
+- **Source**: GitHub releases of anomalyco/opencode (`opencode-linux-x64.tar.gz`, `opencode-darwin-arm64.zip`, etc.). Since v2 the npm platform packages are no longer updated (they stop at 1.19.5).
 - **License**: MIT
 - **Homepage**: https://opencode.ai
 
@@ -224,7 +224,7 @@ nix run github:GutMutCode/opencode-nix
 
 ```bash
 # Check version
-opencode --version  # Should show: 1.18.21
+opencode --version  # Should show: 2.2.6
 
 # List available models
 opencode models
@@ -253,14 +253,15 @@ If you see Bun help instead of OpenCode help, the binary may have been corrupted
 
 To update to a newer version:
 
-1. Check latest version: `npm view opencode-ai version`
+1. Check the latest release: `gh release list --repo anomalyco/opencode --limit 5` (the release marked as Latest may be an older line, check the newest tags)
 2. Update `version` in `package.nix`
-3. Update SHA256 hashes:
+3. Update the hashes. GitHub publishes the sha256 of each asset:
    ```bash
-   nix-prefetch-url --type sha256 https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-VERSION.tgz
-   # Repeat for other platforms
+   gh api repos/anomalyco/opencode/releases/tags/vVERSION --jq '.assets[] | select(.name | test("^opencode-(linux|darwin)-(x64|arm64)\\.(tar\\.gz|zip)$")) | "\(.name) \(.digest)"'
+   nix hash convert --hash-algo sha256 --to sri HEX_DIGEST
    ```
-4. Update version in README
+4. Build and check: `nix build .#opencode && ./result/bin/opencode --version`
+5. Update the version in this README and in `overlay.nix`
 
 ## License
 

@@ -1,12 +1,12 @@
 { lib
 , stdenv
 , fetchurl
-, patchelf ? null
-, glibc ? null
+, patchelf
+, unzip
 }:
 
 let
-  # Platform and architecture detection for npm package names
+  # Platform and architecture detection for the GitHub release asset names
   arch =
     if stdenv.hostPlatform.isAarch64 then "arm64"
     else if stdenv.hostPlatform.isx86_64 then "x64"
@@ -17,21 +17,25 @@ let
     else if stdenv.hostPlatform.isDarwin then "darwin"
     else throw "Unsupported OS for opencode";
 
-  # Latest version
-  version = "1.18.31";
+  # Linux ships a .tar.gz, macOS a .zip. Both contain a single `opencode` binary.
+  extension = if stdenv.hostPlatform.isDarwin then "zip" else "tar.gz";
 
-  # SHA256 hashes for npm packages (nix base32 format)
+  # Latest version. Since v2 it is only published as GitHub release assets,
+  # the npm platform packages stopped at 1.19.5.
+  version = "2.2.6";
+
+  # SRI hashes of the release assets
+  # (sha256 digests published by GitHub, converted with `nix hash convert --to sri`)
   hashes = {
-    x86_64-linux = "1shd2il7nczfn0i85dq1a44zcp266kf9d0vj7s90s0wb58jxm2bd";
-    aarch64-linux = "1l35fjdzsz5a5ccr1if822rvrxlk74kbakbiwmy2ny62hacgqc4z";
-    x86_64-darwin = "1sll8hs3i2xc6zrqcxy2x02b5iksl0czw836zyk4f7vz42hlmkyz";
-    aarch64-darwin = "0wfnaymjyfd4j8qi975b0zmc8xvr8pyxs1aznqck82szfq39myp1";
+    x86_64-linux = "sha256-CLsh1jJs50DZHM5+voimU2kz9uHjA1O5GgawHyXaMGw=";
+    aarch64-linux = "sha256-8tJ2AMNn5FBX1qFvalwqqNd7QamxDUvD2EnC+Ihw6UQ=";
+    x86_64-darwin = "sha256-spYtxEXYc99Wrn07p+ZlArBGu8Ta+oIOyhjQMDqYopw=";
+    aarch64-darwin = "sha256-FUkWCPawvE3r5erDXqtimisH6pofusaK1TvOpZ/MS0U=";
   };
 
-  # Fetch the platform-specific npm package
   src = fetchurl {
-    url = "https://registry.npmjs.org/opencode-${platform}-${arch}/-/opencode-${platform}-${arch}-${version}.tgz";
-    sha256 = hashes.${stdenv.hostPlatform.system};
+    url = "https://github.com/anomalyco/opencode/releases/download/v${version}/opencode-${platform}-${arch}.${extension}";
+    hash = hashes.${stdenv.hostPlatform.system};
   };
 in
 stdenv.mkDerivation {
@@ -40,10 +44,12 @@ stdenv.mkDerivation {
   inherit src;
 
   # Do NOT use autoPatchelfHook - it corrupts the Bun-based binary
-  nativeBuildInputs = lib.optional stdenv.hostPlatform.isLinux patchelf;
+  nativeBuildInputs =
+    lib.optional stdenv.hostPlatform.isLinux patchelf
+    ++ lib.optional stdenv.hostPlatform.isDarwin unzip;
 
-  # npm tarballs have a 'package' directory
-  sourceRoot = "package";
+  # The archive holds a single file and no directory, so there is nothing to unpack into
+  dontUnpack = true;
 
   # Disable all default fixup phases that might corrupt the binary
   dontStrip = true;
@@ -53,19 +59,22 @@ stdenv.mkDerivation {
   installPhase = ''
     runHook preInstall
 
-    # Install binary
-    install -Dm755 bin/opencode $out/bin/opencode
+    mkdir extracted
+    cd extracted
+    ${if stdenv.hostPlatform.isDarwin then "unzip -q $src" else "tar -xzf $src"}
+
+    install -Dm755 opencode $out/bin/opencode
 
     ${lib.optionalString stdenv.hostPlatform.isLinux ''
     # Only patch the interpreter on Linux, nothing else
-    patchelf --set-interpreter ${glibc}/lib/ld-linux-x86-64.so.2 $out/bin/opencode
+    patchelf --set-interpreter "$(cat ${stdenv.cc}/nix-support/dynamic-linker)" $out/bin/opencode
     ''}
 
     runHook postInstall
   '';
 
   meta = with lib; {
-    description = "AI coding agent built for the terminal (latest version from npm)";
+    description = "AI coding agent built for the terminal (latest release from GitHub)";
     homepage = "https://opencode.ai";
     license = licenses.mit;
     platforms = platforms.linux ++ platforms.darwin;
